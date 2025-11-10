@@ -5,12 +5,12 @@ import { EditPanel } from './components/EditPanel';
 import { Toolbar } from './components/Toolbar';
 import { ToolsSidebar } from './components/ToolsSidebar';
 import { SplashScreen } from './components/SplashScreen';
-import { editImage, generateMotionPhoto } from './services/geminiService';
+import { editImage, selectObject } from './services/geminiService';
 import type { Adjustments } from './types';
 import { IconLogo } from './components/Icons';
 
 export type AspectRatio = 'original' | '1:1' | '4:5' | '16:9';
-export type ActiveTool = 'brush';
+export type ActiveTool = 'brush' | 'select';
 
 function App() {
   const [originalFile, setOriginalFile] = useState<File | null>(null);
@@ -19,6 +19,7 @@ function App() {
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
   
   const [isLoading, setIsLoading] = useState(false);
+  const [isSelectingObject, setIsSelectingObject] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
@@ -34,15 +35,7 @@ function App() {
   const [activeTool, setActiveTool] = useState<ActiveTool>('brush');
   const [brushSize, setBrushSize] = useState(30);
   const [referenceImage, setReferenceImage] = useState<File | null>(null);
-  const [videoSrc, setVideoSrc] = useState<string | null>(null);
   
-  const [isApiKeySelected, setIsApiKeySelected] = useState(false);
-  
-  useEffect(() => {
-    // Check for API key on initial load
-    window.aistudio?.hasSelectedApiKey().then(setIsApiKeySelected);
-  }, []);
-
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
 
@@ -52,10 +45,6 @@ function App() {
     setHistory(newHistory);
     setHistoryIndex(newHistory.length - 1);
   };
-  
-  const resetToImageState = () => {
-    setVideoSrc(null);
-  }
 
   const handleFileUpload = (file: File) => {
     const reader = new FileReader();
@@ -71,29 +60,18 @@ function App() {
       setAspectRatio('original');
       setReferenceImage(null);
       onResetAdjustments();
-      resetToImageState();
+      setActiveTool('brush');
     };
     reader.readAsDataURL(file);
   };
   
   const handleEdit = useCallback(async (editPrompt: string, customMask?: string | null) => {
-    try {
-       const keySelected = await window.aistudio.hasSelectedApiKey();
-       if (!keySelected) {
-         await window.aistudio.openSelectKey();
-         setIsApiKeySelected(true); // Assume success to avoid race conditions
-       }
-     } catch (e) {
-        console.error("AISTUDIO_API_KEY_ERROR", e);
-        setError("Kan API-sleutel selectie niet openen. Zorg ervoor dat u in de juiste omgeving draait.");
-        return;
-     }
-      
     onResetAdjustments();
-    resetToImageState();
 
     if (!currentImageSrc || !originalFile) return;
     const currentFileToEdit = await (await fetch(history[historyIndex])).blob();
+    const fileToEdit = new File([currentFileToEdit], originalFile.name, { type: originalFile.type });
+
 
     setIsLoading(true);
     setLoadingMessage('AI-magie toepassen...');
@@ -102,20 +80,12 @@ function App() {
     const finalMask = customMask === undefined ? mask : customMask;
 
     try {
-      const resultBase64 = await editImage(new File([currentFileToEdit], originalFile.name, { type: originalFile.type }), editPrompt, finalMask, referenceImage);
+      const resultBase64 = await editImage(fileToEdit, editPrompt, finalMask, referenceImage);
       const newSrc = `data:image/png;base64,${resultBase64}`;
       setCurrentImageSrc(newSrc);
       updateHistory(newSrc);
     } catch (e: any) {
-      let errorMessage = e.message || 'Er is een onbekende fout opgetreden.';
-      if (typeof errorMessage === 'string' && (errorMessage.includes('RESOURCE_EXHAUSTED') || errorMessage.includes('quota'))) {
-          errorMessage = 'Uw API-sleutel heeft de gratis gebruikslimiet overschreden. Om door te gaan, dient u facturering in te schakelen voor uw project of een andere API-sleutel te selecteren. Zie ai.google.dev/gemini-api/docs/billing voor meer informatie.';
-          setIsApiKeySelected(false); // Reset key state to allow re-selection
-      } else if (typeof errorMessage === 'string' && errorMessage.includes('Requested entity was not found.')) {
-          errorMessage = 'API-sleutel niet gevonden of ongeldig. Selecteer alstublieft opnieuw uw API-sleutel.';
-          setIsApiKeySelected(false); // Reset key state
-      }
-      setError(errorMessage);
+      setError(e.message || 'Er is een onbekende fout opgetreden.');
     } finally {
       setIsLoading(false);
       setLoadingMessage('');
@@ -125,51 +95,32 @@ function App() {
     }
   }, [originalFile, mask, referenceImage, history, historyIndex, currentImageSrc]);
   
-  const handleGenerateMotionPhoto = async () => {
-     if (!currentImageSrc || !originalFile) return;
+  const handleObjectSelect = useCallback(async (coords: { x: number, y: number }) => {
+    if (!originalFile) return;
 
-     try {
-       const keySelected = await window.aistudio.hasSelectedApiKey();
-       if (!keySelected) {
-         await window.aistudio.openSelectKey();
-         // Assume the user selected a key. We'll proceed and let the API call fail if they didn't.
-         setIsApiKeySelected(true);
-       }
-     } catch (e) {
-        console.error("AISTUDIO_API_KEY_ERROR", e);
-        setError("Kan API-sleutel selectie niet openen. Zorg ervoor dat u in de juiste omgeving draait.");
-        return;
-     }
-
-    resetToImageState();
-    onResetAdjustments();
-    const currentFileToEdit = await (await fetch(history[historyIndex])).blob();
-    
-    setIsLoading(true);
-    setLoadingMessage('Bewegend beeld genereren... Dit kan enkele minuten duren.');
+    setIsSelectingObject(true);
     setError(null);
-    
+    onClearMask();
+
+    const currentFileForSelection = await(await fetch(history[historyIndex])).blob();
+    const fileToSelectFrom = new File([currentFileForSelection], originalFile.name, { type: originalFile.type });
+
     try {
-        const videoObjectUrl = await generateMotionPhoto(new File([currentFileToEdit], originalFile.name, {type: originalFile.type}));
-        setVideoSrc(videoObjectUrl);
-    } catch(e: any) {
-        let errorMessage = e.message || 'Er is een onbekende fout opgetreden.';
-        if (typeof errorMessage === 'string' && (errorMessage.includes('RESOURCE_EXHAUSTED') || errorMessage.includes('quota'))) {
-            errorMessage = 'Uw API-sleutel heeft de gratis gebruikslimiet overschreden. Om door te gaan, dient u facturering in te schakelen voor uw project of een andere API-sleutel te selecteren. Zie ai.google.dev/gemini-api/docs/billing voor meer informatie.';
-            setIsApiKeySelected(false); // Reset key state to allow re-selection
-        } else if (typeof errorMessage === 'string' && errorMessage.includes('Requested entity was not found.')) {
-            errorMessage = 'API-sleutel niet gevonden of ongeldig. Selecteer alstublieft opnieuw uw API-sleutel.';
-            setIsApiKeySelected(false); // Reset key state
-        }
-        setError(errorMessage);
+        const maskBase64 = await selectObject(fileToSelectFrom, coords);
+        setMask(maskBase64);
+        setActiveTool('brush');
+    } catch (e: any) {
+        setError(e.message || 'Er is een onbekende fout opgetreden.');
     } finally {
-        setIsLoading(false);
+        setIsSelectingObject(false);
         setLoadingMessage('');
     }
-  };
+  }, [originalFile, history, historyIndex]);
 
   const onApply = () => handleEdit(prompt);
   const onEnhance = () => handleEdit('Verbeter de kwaliteit van deze afbeelding subtiel, verbeter de helderheid, belichting en kleurbalans zonder dramatische wijzigingen aan te brengen. Laat het eruitzien als een professionele foto.');
+  const onUpscale = () => handleEdit('Verbeter de resolutie en scherpte van deze afbeelding aanzienlijk. Genereer fijne details en texturen opnieuw om een high-definition resultaat te creëren, terwijl de originele compositie en onderwerpen behouden blijven.');
+  const onRelight = (lightPrompt: string) => handleEdit(`Pas de belichting van de afbeelding aan volgens deze beschrijving: ${lightPrompt}. Behoud de originele inhoud en compositie, verander alleen de lichtomstandigheden, schaduwen en highlights.`);
   const onMagicErase = () => handleEdit('Verwijder het geselecteerde object naadloos.', null);
   const onRemoveBackground = () => handleEdit('Verwijder de achtergrond, laat alleen het hoofdonderwerp achter met een transparante achtergrond.');
   const onReplaceBackground = (bgPrompt: string) => handleEdit(`Vervang de achtergrond met: ${bgPrompt}`);
@@ -193,7 +144,6 @@ function App() {
   const handleUndo = () => {
     if (canUndo) {
       onResetAdjustments();
-      resetToImageState();
       const newIndex = historyIndex - 1;
       setHistoryIndex(newIndex);
       setCurrentImageSrc(history[newIndex]);
@@ -203,7 +153,6 @@ function App() {
   const handleRedo = () => {
     if (canRedo) {
       onResetAdjustments();
-      resetToImageState();
       const newIndex = historyIndex + 1;
       setHistoryIndex(newIndex);
       setCurrentImageSrc(history[newIndex]);
@@ -213,10 +162,7 @@ function App() {
   const handleDownload = async () => {
     const link = document.createElement('a');
 
-    if (videoSrc) {
-       link.href = videoSrc;
-       link.download = `artisan-ai-video-${Date.now()}.mp4`;
-    } else if (currentImageSrc) {
+    if (currentImageSrc) {
         const image = new Image();
         image.crossOrigin = 'anonymous';
         image.src = currentImageSrc;
@@ -247,7 +193,6 @@ function App() {
       setCurrentImageSrc(null);
       setHistory([]);
       setHistoryIndex(-1);
-      resetToImageState();
   };
 
   return (
@@ -274,11 +219,12 @@ function App() {
                 onRemoveBackground={onRemoveBackground}
                 onReplaceBackground={onReplaceBackground}
                 onEnhance={onEnhance}
+                onUpscale={onUpscale}
+                onRelight={onRelight}
                 onMagicErase={onMagicErase}
                 onMagicExpand={onMagicExpand}
                 onApplyFilter={onApplyFilter}
-                onGenerateMotionPhoto={handleGenerateMotionPhoto}
-                isProcessing={isLoading}
+                isProcessing={isLoading || isSelectingObject}
                 hasImage={!!currentImageSrc}
                 hasSelection={!!mask}
                 aspectRatio={aspectRatio}
@@ -303,7 +249,7 @@ function App() {
                 onReset={handleReset}
                 canUndo={canUndo}
                 canRedo={canRedo}
-                isProcessing={isLoading}
+                isProcessing={isLoading || isSelectingObject}
               />
               <div className="flex-grow flex items-center justify-center min-h-0 relative gap-4">
                  <ToolsSidebar activeTool={activeTool} setActiveTool={setActiveTool} />
@@ -312,6 +258,7 @@ function App() {
                         imageSrc={currentImageSrc}
                         onMaskChange={setMask}
                         isLoading={isLoading}
+                        isSelectingObject={isSelectingObject}
                         loadingMessage={loadingMessage}
                         aspectRatio={aspectRatio}
                         adjustments={adjustments}
@@ -319,7 +266,7 @@ function App() {
                         brushSize={brushSize}
                         onCanvasResize={setCanvasSize}
                         maskVersion={maskVersion}
-                        videoSrc={videoSrc}
+                        onObjectSelect={handleObjectSelect}
                     />
                  </div>
               </div>

@@ -7,6 +7,7 @@ interface ImageCanvasProps {
   imageSrc: string;
   onMaskChange: (mask: string | null) => void;
   isLoading: boolean;
+  isSelectingObject: boolean;
   loadingMessage: string;
   aspectRatio: AspectRatio;
   adjustments: Adjustments;
@@ -14,7 +15,7 @@ interface ImageCanvasProps {
   brushSize: number;
   onCanvasResize: (size: {width: number, height: number}) => void;
   maskVersion: number;
-  videoSrc: string | null;
+  onObjectSelect: (coords: { x: number, y: number }) => void;
 }
 
 const getAspectRatioValue = (ratio: AspectRatio): number | null => {
@@ -27,9 +28,9 @@ const getAspectRatioValue = (ratio: AspectRatio): number | null => {
 }
 
 export const ImageCanvas: React.FC<ImageCanvasProps> = ({ 
-    imageSrc, onMaskChange, isLoading, loadingMessage,
+    imageSrc, onMaskChange, isLoading, isSelectingObject, loadingMessage,
     aspectRatio, adjustments, activeTool, brushSize, onCanvasResize,
-    maskVersion, videoSrc
+    maskVersion, onObjectSelect
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -180,7 +181,7 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({
   };
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isLoading || videoSrc) return;
+    if (isLoading || isSelectingObject) return;
     const coords = getCanvasCoords(e);
     
     if (activeTool === 'brush') {
@@ -192,11 +193,19 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({
         maskCtx.arc(coords.x, coords.y, brushSize / 2, 0, Math.PI * 2);
         maskCtx.fillStyle = 'rgba(255, 255, 255, 0.7)';
         maskCtx.fill();
+    } else if (activeTool === 'select') {
+        const { x: layoutX, y: layoutY, width: layoutWidth, height: layoutHeight } = imageLayout;
+        const relativeX = (coords.x - layoutX) / layoutWidth;
+        const relativeY = (coords.y - layoutY) / layoutHeight;
+
+        if (relativeX >= 0 && relativeX <= 1 && relativeY >= 0 && relativeY <= 1) {
+            onObjectSelect({ x: relativeX, y: relativeY });
+        }
     }
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isDrawing || videoSrc) return;
+    if (!isDrawing) return;
     const coords = getCanvasCoords(e);
 
     if (activeTool === 'brush' && lastPoint) {
@@ -215,7 +224,6 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({
   };
 
   const handleMouseUp = () => {
-    if (videoSrc) return;
     if (isDrawing && activeTool === 'brush') {
         const maskCanvas = maskCanvasRef.current;
         if(maskCanvas) {
@@ -229,7 +237,22 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({
             finalCtx.fillStyle = 'black';
             finalCtx.fillRect(0,0,finalMaskCanvas.width, finalMaskCanvas.height);
 
-            finalCtx.drawImage(maskCanvas, 0, 0, maskCanvas.width, maskCanvas.height, 0, 0, finalMaskCanvas.width, finalMaskCanvas.height);
+            const scaleX = finalMaskCanvas.width / maskCanvas.width;
+            const scaleY = finalMaskCanvas.height / maskCanvas.height;
+
+            const imageToCanvasRatioX = imageLayout.width / canvasDims.width;
+            const imageToCanvasRatioY = imageLayout.height / canvasDims.height;
+            
+            const finalImageWidth = finalMaskCanvas.width * imageToCanvasRatioX;
+            const finalImageHeight = finalMaskCanvas.height * imageToCanvasRatioY;
+            const finalImageX = (finalMaskCanvas.width - finalImageWidth) / 2;
+            const finalImageY = (finalMaskCanvas.height - finalImageHeight) / 2;
+            
+            finalCtx.drawImage(
+              maskCanvas,
+              imageLayout.x, imageLayout.y, imageLayout.width, imageLayout.height,
+              finalImageX, finalImageY, finalImageWidth, finalImageHeight
+            );
 
             onMaskChange(finalMaskCanvas.toDataURL().split(',')[1]);
         }
@@ -246,25 +269,12 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        style={{ width: canvasDims.width, height: canvasDims.height, cursor: activeTool === 'brush' && !videoSrc ? 'none' : 'crosshair' }}
+        style={{ width: canvasDims.width, height: canvasDims.height, cursor: activeTool === 'brush' ? 'none' : 'crosshair' }}
       >
-        {videoSrc ? (
-            <video
-                src={videoSrc}
-                autoPlay
-                loop
-                muted
-                playsInline
-                className="absolute top-0 left-0 w-full h-full object-contain rounded-lg"
-            />
-        ) : (
-            <>
-                <canvas ref={canvasRef} className="absolute top-0 left-0 rounded-lg" />
-                <canvas ref={maskCanvasRef} className="absolute top-0 left-0 pointer-events-none opacity-80" />
-            </>
-        )}
+        <canvas ref={canvasRef} className="absolute top-0 left-0 rounded-lg" />
+        <canvas ref={maskCanvasRef} className="absolute top-0 left-0 pointer-events-none opacity-80" />
         
-        {activeTool === 'brush' && !videoSrc && (
+        {activeTool === 'brush' && (
             <div 
                 className="absolute rounded-full border-2 border-white pointer-events-none -translate-x-1/2 -translate-y-1/2"
                 style={{
@@ -278,10 +288,10 @@ export const ImageCanvas: React.FC<ImageCanvasProps> = ({
         )}
       </div>
       
-      {isLoading && (
+      {(isLoading || isSelectingObject) && (
         <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-4 rounded-lg z-10">
           <Spinner />
-          <p className="text-lg text-indigo-300 font-medium text-center px-4">{loadingMessage || 'Even geduld...'}</p>
+          <p className="text-lg text-indigo-300 font-medium text-center px-4">{isSelectingObject ? 'Object selecteren...' : (loadingMessage || 'Even geduld...')}</p>
         </div>
       )}
     </div>

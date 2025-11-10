@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { IconSparkles, IconWand, IconEnhance, IconEraser, IconExpand, IconReplace, IconImagePlus, IconCross, IconMovie } from './Icons';
+import { IconSparkles, IconWand, IconEnhance, IconEraser, IconExpand, IconReplace, IconImagePlus, IconCross, IconSelect, IconUpscale, IconLight } from './Icons';
 import { filters } from '../config/filters';
 import type { Adjustments } from '../types';
 import type { ActiveTool, AspectRatio } from '../App';
@@ -12,10 +12,11 @@ interface EditPanelProps {
   onRemoveBackground: () => void;
   onReplaceBackground: (prompt: string) => void;
   onEnhance: () => void;
+  onUpscale: () => void;
+  onRelight: (prompt: string) => void;
   onMagicErase: () => void;
   onMagicExpand: () => void;
   onApplyFilter: (prompt: string) => void;
-  onGenerateMotionPhoto: () => void;
   isProcessing: boolean;
   hasImage: boolean;
   hasSelection: boolean;
@@ -41,10 +42,11 @@ export const EditPanel: React.FC<EditPanelProps> = ({
   onRemoveBackground,
   onReplaceBackground,
   onEnhance,
+  onUpscale,
+  onRelight,
   onMagicErase,
   onMagicExpand,
   onApplyFilter,
-  onGenerateMotionPhoto,
   isProcessing,
   hasImage,
   hasSelection,
@@ -62,6 +64,7 @@ export const EditPanel: React.FC<EditPanelProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('edit');
   const [bgPrompt, setBgPrompt] = useState<string>('');
+  const [lightPrompt, setLightPrompt] = useState<string>('');
 
   const isApplyDisabled = !prompt || isProcessing || !hasImage;
 
@@ -85,6 +88,18 @@ export const EditPanel: React.FC<EditPanelProps> = ({
   };
 
   const renderEditTab = () => {
+    if (activeTool === 'select' && !hasSelection) {
+      return (
+        <div className="p-4 text-center rounded-lg bg-gray-700/50 border border-gray-600 animate-fade-in">
+          <IconSelect className="w-8 h-8 mx-auto mb-2 text-indigo-400" />
+          <h3 className="font-semibold text-gray-200">Object Selecteren</h3>
+          <p className="text-sm text-gray-400 mt-1">
+            Klik op een object in de afbeelding om een precieze selectie te maken voor bewerking.
+          </p>
+        </div>
+      );
+    }
+    
     if (activeTool === 'brush' && hasSelection) {
       return (
          <div className="p-4 rounded-lg bg-gray-700/50 border border-gray-600 animate-fade-in space-y-3">
@@ -232,10 +247,6 @@ export const EditPanel: React.FC<EditPanelProps> = ({
                   <IconWand className="w-5 h-5" />
                   Verwijder BG
                 </button>
-                 <button type="button" onClick={onGenerateMotionPhoto} disabled={!hasImage || isProcessing} className="w-full flex justify-center items-center gap-2 rounded-md bg-amber-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-500 disabled:bg-gray-600 disabled:text-gray-400 transition-all col-span-2">
-                  <IconMovie className="w-5 h-5" />
-                  Bewegend Beeld
-                </button>
               </div>
             </div>
              <div>
@@ -254,6 +265,34 @@ export const EditPanel: React.FC<EditPanelProps> = ({
                   <IconReplace className="w-5 h-5" />
                   Genereer
                 </button>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Geavanceerde Gereedschappen
+              </label>
+              <div className="space-y-4 p-4 rounded-lg bg-gray-900/50">
+                 <button type="button" onClick={onUpscale} disabled={isProcessing} className="w-full flex justify-center items-center gap-2 rounded-md bg-rose-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-rose-500 disabled:bg-gray-600 disabled:text-gray-400 transition-all">
+                  <IconUpscale className="w-5 h-5" />
+                  AI Opschalen
+                </button>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Licht Studio
+                  </label>
+                   <textarea
+                        rows={2}
+                        className="block w-full rounded-md border-0 bg-gray-700 text-gray-200 shadow-sm ring-1 ring-inset ring-gray-600 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-500 sm:text-sm sm:leading-6 p-3 transition-colors"
+                        placeholder={"bv. 'dramatisch studiolicht van linksboven'"}
+                        value={lightPrompt}
+                        onChange={(e) => setLightPrompt(e.target.value)}
+                        disabled={isProcessing}
+                    />
+                  <button type="button" onClick={() => onRelight(lightPrompt)} disabled={isProcessing || !lightPrompt} className="w-full mt-2 flex justify-center items-center gap-2 rounded-md bg-amber-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-500 disabled:bg-gray-600 disabled:text-gray-400 transition-all">
+                      <IconLight className="w-5 h-5" />
+                      Pas Belichting Toe
+                    </button>
+                </div>
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">

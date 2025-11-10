@@ -114,9 +114,15 @@ export const IconSelect: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
     </Icon>
 );
 
-export const IconMovie: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+export const IconUpscale: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <Icon {...props}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l7.5-7.5 7.5 7.5" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 18.75l7.5-7.5 7.5 7.5" />
+  </Icon>
+);
+
+export const IconLight: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
     <Icon {...props}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.91 11.672a.375.375 0 010 .656l-5.603 3.113a.375.375 0 01-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m8.66-13.66l-.707.707M4.05 19.95l-.707.707M20 12h-1M5 12H4m15.95-7.95l-.707-.707M4.757 15.243l-.707-.707M12 18a6 6 0 100-12 6 6 0 000 12z" />
     </Icon>
 );

@@ -32,10 +32,9 @@ export const ToolsSidebar: React.FC<ToolsSidebarProps> = ({ activeTool, setActiv
             <ToolButton label="Penseel" isActive={activeTool === 'brush'} onClick={() => setActiveTool('brush')}>
                 <IconBrush className="w-6 h-6" />
             </ToolButton>
-            {/* Hiding select tool for now as brush is superior */}
-            {/* <ToolButton label="Select Tool" isActive={activeTool === 'select'} onClick={() => setActiveTool('select')}>
+            <ToolButton label="Selecteer Object" isActive={activeTool === 'select'} onClick={() => setActiveTool('select')}>
                 <IconSelect className="w-6 h-6" />
-            </ToolButton> */}
+            </ToolButton>
         </div>
     )
 }

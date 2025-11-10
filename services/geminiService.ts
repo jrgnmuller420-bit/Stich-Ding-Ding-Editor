@@ -13,17 +13,21 @@ const fileToBase64 = (file: File): Promise<string> => {
   });
 };
 
+const getApiClient = () => {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+        throw new Error("API-sleutel niet geconfigureerd. Stel de API_KEY omgevingsvariabele in.");
+    }
+    return new GoogleGenAI({ apiKey });
+};
+
 export const editImage = async (
     file: File, 
     prompt: string,
     maskBase64?: string | null,
     referenceImageFile?: File | null
 ): Promise<string> => {
-  if (!process.env.API_KEY) {
-    throw new Error("API_KEY omgevingsvariabele niet ingesteld.");
-  }
-  
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getApiClient();
 
   const originalImageBase64 = await fileToBase64(file);
 
@@ -87,46 +91,75 @@ export const editImage = async (
   throw new Error("Het bewerken van de afbeelding is mislukt of er is geen afbeelding geretourneerd. De API-respons was leeg of had een onverwacht formaat.");
 };
 
-export const generateMotionPhoto = async (file: File): Promise<string> => {
-    if (!process.env.API_KEY) {
-        throw new Error("API_KEY omgevingsvariabele niet ingesteld.");
-    }
+export const selectObject = async (
+    file: File,
+    coords: { x: number; y: number } // Normalized coordinates
+): Promise<string> => {
+    const ai = getApiClient();
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-    const imageBase64 = await fileToBase64(file);
-
-    let operation = await ai.models.generateVideos({
-        model: 'veo-3.1-fast-generate-preview',
-        prompt: 'Breng deze foto subtiel tot leven met zachte, realistische beweging. Behoud de originele stijl en sfeer.',
-        image: {
-            imageBytes: imageBase64,
-            mimeType: file.type,
-        },
-        config: {
-            numberOfVideos: 1,
-            resolution: '720p',
-            // We laten de aspect ratio over aan het model om de originele verhouding te behouden
-        }
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    image.src = objectUrl;
+    await new Promise((resolve, reject) => { 
+        image.onload = resolve;
+        image.onerror = reject;
     });
 
-    while (!operation.done) {
-        // Wacht 5 seconden tussen de polls
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        operation = await ai.operations.getVideosOperation({ operation: operation });
-    }
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error("Kon geen canvas context krijgen");
+    
+    ctx.drawImage(image, 0, 0);
+    URL.revokeObjectURL(objectUrl);
 
-    const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+    // Teken een duidelijke stip op de kliklocatie
+    const dotX = coords.x * image.naturalWidth;
+    const dotY = coords.y * image.naturalHeight;
+    ctx.beginPath();
+    ctx.arc(dotX, dotY, Math.max(5, image.naturalWidth * 0.005), 0, 2 * Math.PI, false);
+    ctx.fillStyle = 'magenta';
+    ctx.fill();
 
-    if (!downloadLink) {
-        throw new Error("Videogeneratie mislukt. Geen downloadlink ontvangen van de API.");
+    const imageWithDotBase64 = canvas.toDataURL(file.type).split(',')[1];
+
+    const parts: Part[] = [
+        {
+            inlineData: {
+                data: imageWithDotBase64,
+                mimeType: file.type,
+            },
+        },
+        {
+            text: "Genereer een precieze, witte-op-zwarte segmentatiemasker voor het object dat wordt aangegeven door de heldere stip. Het gemaskeerde object moet wit zijn en de achtergrond zwart.",
+        },
+    ];
+    
+    const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: { parts },
+        config: {
+            responseModalities: [Modality.IMAGE],
+        },
+    });
+
+    const candidate = response.candidates?.[0];
+
+    if (candidate?.finishReason === 'SAFETY') {
+        throw new Error("Het verzoek is geblokkeerd vanwege veiligheidsinstellingen. Probeer op een andere plek te klikken.");
     }
     
-    const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
-    if (!response.ok) {
-        throw new Error(`Kon de video niet downloaden. Status: ${response.statusText}`);
+    if (candidate?.content?.parts) {
+        for (const part of candidate.content.parts) {
+            if (part.inlineData?.data) {
+                return part.inlineData.data;
+            }
+            if (part.text) {
+                throw new Error(`Het model retourneerde tekst in plaats van een masker: "${part.text}"`);
+            }
+        }
     }
-
-    const videoBlob = await response.blob();
-    return URL.createObjectURL(videoBlob);
+    
+    throw new Error("Objectselectie mislukt. Het model heeft geen masker geretourneerd.");
 };
