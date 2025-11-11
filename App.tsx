@@ -1,13 +1,14 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { FileUpload } from './components/FileUpload';
 import { ImageCanvas } from './components/ImageCanvas';
-import { EditPanel } from './components/EditPanel';
+import { ControlPanel } from './components/ControlPanel';
 import { Toolbar } from './components/Toolbar';
 import { ToolsSidebar } from './components/ToolsSidebar';
 import { SplashScreen } from './components/SplashScreen';
-import { editImage, selectObject } from './services/geminiService';
+import { editImage, selectObject, generateUiCode } from './services/geminiService';
 import type { Adjustments } from './types';
 import { IconLogo } from './components/Icons';
+import { PreviewModal } from './components/PreviewModal';
 
 export type AspectRatio = 'original' | '1:1' | '4:5' | '16:9';
 export type ActiveTool = 'brush' | 'select';
@@ -35,7 +36,11 @@ function App() {
   const [activeTool, setActiveTool] = useState<ActiveTool>('brush');
   const [brushSize, setBrushSize] = useState(30);
   const [referenceImage, setReferenceImage] = useState<File | null>(null);
-  
+  const [previews, setPreviews] = useState<string[]>([]);
+
+  const [generatedHtml, setGeneratedHtml] = useState<string | null>(null);
+  const [generatedCss, setGeneratedCss] = useState<string | null>(null);
+
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
 
@@ -61,40 +66,60 @@ function App() {
       setReferenceImage(null);
       onResetAdjustments();
       setActiveTool('brush');
+      setGeneratedHtml(null);
+      setGeneratedCss(null);
     };
     reader.readAsDataURL(file);
   };
   
-  const handleEdit = useCallback(async (editPrompt: string, customMask?: string | null) => {
+  const handleGeneratePreviews = useCallback(async (editPrompt: string, numPreviews = 3) => {
     onResetAdjustments();
 
     if (!currentImageSrc || !originalFile) return;
+    
     const currentFileToEdit = await (await fetch(history[historyIndex])).blob();
     const fileToEdit = new File([currentFileToEdit], originalFile.name, { type: originalFile.type });
 
-
     setIsLoading(true);
-    setLoadingMessage('AI-magie toepassen...');
+    setLoadingMessage(`Previews genereren (${numPreviews} varianten)...`);
     setError(null);
+    setPreviews([]);
     
-    const finalMask = customMask === undefined ? mask : customMask;
-
     try {
-      const resultBase64 = await editImage(fileToEdit, editPrompt, finalMask, referenceImage);
-      const newSrc = `data:image/png;base64,${resultBase64}`;
-      setCurrentImageSrc(newSrc);
-      updateHistory(newSrc);
+      const previewPromises = Array(numPreviews).fill(0).map(() => 
+        editImage(fileToEdit, editPrompt, mask, referenceImage)
+      );
+      
+      const results = await Promise.all(previewPromises);
+
+      const validResults = results.filter(r => r).map(base64 => `data:image/png;base64,${base64}`);
+      if (validResults.length === 0) {
+          throw new Error("Kon geen previews genereren. Het model heeft mogelijk geen afbeeldingen geretourneerd.");
+      }
+
+      setPreviews(validResults);
     } catch (e: any) {
-      setError(e.message || 'Er is een onbekende fout opgetreden.');
+      setError(e.message || 'Er is een onbekende fout opgetreden bij het genereren van previews.');
+      setPreviews([]);
     } finally {
       setIsLoading(false);
       setLoadingMessage('');
-      setPrompt('');
-      onClearMask();
-      setReferenceImage(null);
     }
   }, [originalFile, mask, referenceImage, history, historyIndex, currentImageSrc]);
   
+  const handleApplyPreview = (selectedSrc: string) => {
+      setCurrentImageSrc(selectedSrc);
+      updateHistory(selectedSrc);
+      setPreviews([]);
+      setPrompt('');
+      onClearMask();
+      setReferenceImage(null);
+  };
+
+  const handleCancelPreview = () => {
+      setPreviews([]);
+  };
+
   const handleObjectSelect = useCallback(async (coords: { x: number, y: number }) => {
     if (!originalFile) return;
 
@@ -117,19 +142,43 @@ function App() {
     }
   }, [originalFile, history, historyIndex]);
 
-  const onApply = () => handleEdit(prompt);
-  const onEnhance = () => handleEdit('Verbeter de kwaliteit van deze afbeelding subtiel, verbeter de helderheid, belichting en kleurbalans zonder dramatische wijzigingen aan te brengen. Laat het eruitzien als een professionele foto.');
-  const onUpscale = () => handleEdit('Verbeter de resolutie en scherpte van deze afbeelding aanzienlijk. Genereer fijne details en texturen opnieuw om een high-definition resultaat te creëren, terwijl de originele compositie en onderwerpen behouden blijven.');
-  const onRelight = (lightPrompt: string) => handleEdit(`Pas de belichting van de afbeelding aan volgens deze beschrijving: ${lightPrompt}. Behoud de originele inhoud en compositie, verander alleen de lichtomstandigheden, schaduwen en highlights.`);
-  const onMagicErase = () => handleEdit('Verwijder het geselecteerde object naadloos.', null);
-  const onRemoveBackground = () => handleEdit('Verwijder de achtergrond, laat alleen het hoofdonderwerp achter met een transparante achtergrond.');
-  const onReplaceBackground = (bgPrompt: string) => handleEdit(`Vervang de achtergrond met: ${bgPrompt}`);
-  const onApplyFilter = (filterPrompt: string) => handleEdit(filterPrompt);
+  const onApply = () => handleGeneratePreviews(prompt);
+  const onEnhance = () => handleGeneratePreviews('Verbeter de kwaliteit van deze afbeelding subtiel, verbeter de helderheid, belichting en kleurbalans zonder dramatische wijzigingen aan te brengen. Laat het eruitzien als een professionele foto.');
+  const onUpscale = () => handleGeneratePreviews('Verbeter de resolutie en scherpte van deze afbeelding aanzienlijk. Genereer fijne details en texturen opnieuw om een high-definition resultaat te creëren, terwijl de originele compositie en onderwerpen behouden blijven.');
+  const onRelight = (lightPrompt: string) => handleGeneratePreviews(`Pas de belichting van de afbeelding aan volgens deze beschrijving: ${lightPrompt}. Behoud de originele inhoud en compositie, verander alleen de lichtomstandigheden, schaduwen en highlights.`);
+  const onMagicErase = () => handleGeneratePreviews('Verwijder het geselecteerde object naadloos.');
+  const onRemoveBackground = () => handleGeneratePreviews('Verwijder de achtergrond, laat alleen het hoofdonderwerp achter met een transparante achtergrond.');
+  const onReplaceBackground = (bgPrompt: string) => handleGeneratePreviews(`Vervang de achtergrond met: ${bgPrompt}`);
+  const onApplyFilter = (filterPrompt: string) => handleGeneratePreviews(filterPrompt);
   
   const onMagicExpand = () => {
     if (!canvasSize) return;
     const { width, height } = canvasSize;
-    handleEdit(`Breid de afbeelding uit om een canvas van ${width}x${height} te vullen. Genereer op intelligente wijze nieuwe inhoud aan de randen die naadloos overvloeit in de originele afbeelding.`);
+    handleGeneratePreviews(`Breid de afbeelding uit om een canvas van ${width}x${height} te vullen. Genereer op intelligente wijze nieuwe inhoud aan de randen die naadloos overvloeit in de originele afbeelding.`);
+  };
+
+  const handleGenerateUi = async (uiPrompt: string) => {
+    if (!currentImageSrc || !originalFile) return;
+
+    setIsLoading(true);
+    setLoadingMessage('UI-code genereren...');
+    setError(null);
+    setGeneratedHtml(null);
+    setGeneratedCss(null);
+
+    try {
+        const currentFileToUse = await (await fetch(history[historyIndex])).blob();
+        const fileForUi = new File([currentFileToUse], originalFile.name, { type: originalFile.type });
+
+        const { html, css } = await generateUiCode(fileForUi, uiPrompt);
+        setGeneratedHtml(html);
+        setGeneratedCss(css);
+    } catch (e: any) {
+        setError(e.message || 'Kon geen UI-code genereren.');
+    } finally {
+        setIsLoading(false);
+        setLoadingMessage('');
+    }
   };
 
   const onResetAdjustments = () => {
@@ -212,7 +261,7 @@ function App() {
         ) : (
           <div className="flex-grow flex p-4 gap-4 min-h-0">
             <div className="w-4/12 lg:w-3/12 flex-shrink-0 h-full overflow-y-auto pr-2 -mr-2">
-              <EditPanel 
+              <ControlPanel
                 prompt={prompt}
                 setPrompt={setPrompt}
                 onApply={onApply}
@@ -238,6 +287,9 @@ function App() {
                 referenceImage={referenceImage}
                 setReferenceImage={setReferenceImage}
                 onClearMask={onClearMask}
+                onGenerateUi={handleGenerateUi}
+                generatedHtml={generatedHtml}
+                generatedCss={generatedCss}
               />
             </div>
             
@@ -279,6 +331,14 @@ function App() {
           </div>
         )}
       </main>
+
+      {previews.length > 0 && !isLoading && (
+        <PreviewModal 
+            previews={previews}
+            onApply={handleApplyPreview}
+            onCancel={handleCancelPreview}
+        />
+      )}
 
        {currentImageSrc && (
          <footer className="text-center p-3 text-xs text-gray-500 border-t border-gray-800/50 shrink-0">

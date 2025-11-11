@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { IconSparkles, IconWand, IconEnhance, IconEraser, IconExpand, IconReplace, IconImagePlus, IconCross, IconSelect, IconUpscale, IconLight } from './Icons';
+import { IconSparkles, IconWand, IconEnhance, IconEraser, IconExpand, IconReplace, IconImagePlus, IconCross, IconSelect, IconUpscale, IconLight, IconCode } from './Icons';
 import { filters } from '../config/filters';
 import type { Adjustments } from '../types';
 import type { ActiveTool, AspectRatio } from '../App';
 import { AdjustSlider } from './AdjustSlider';
+import { CodePanel } from './CodePanel';
 
-interface EditPanelProps {
+interface ControlPanelProps {
   prompt: string;
   setPrompt: (prompt: string) => void;
   onApply: () => void;
@@ -31,38 +32,21 @@ interface EditPanelProps {
   referenceImage: File | null;
   setReferenceImage: (file: File | null) => void;
   onClearMask: () => void;
+  onGenerateUi: (prompt: string) => void;
+  generatedHtml: string | null;
+  generatedCss: string | null;
 }
 
-type Tab = 'edit' | 'tools' | 'filters' | 'adjust';
+type Tab = 'design' | 'code' | 'tools' | 'filters' | 'adjust';
 
-export const EditPanel: React.FC<EditPanelProps> = ({
-  prompt,
-  setPrompt,
-  onApply,
-  onRemoveBackground,
-  onReplaceBackground,
-  onEnhance,
-  onUpscale,
-  onRelight,
-  onMagicErase,
-  onMagicExpand,
-  onApplyFilter,
-  isProcessing,
-  hasImage,
-  hasSelection,
-  aspectRatio,
-  setAspectRatio,
-  adjustments,
-  setAdjustments,
-  onResetAdjustments,
-  activeTool,
-  brushSize,
-  setBrushSize,
-  referenceImage,
-  setReferenceImage,
-  onClearMask
-}) => {
-  const [activeTab, setActiveTab] = useState<Tab>('edit');
+export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
+  const {
+    prompt, setPrompt, onApply, onMagicErase, isProcessing, hasImage,
+    hasSelection, activeTool, brushSize, setBrushSize, referenceImage,
+    setReferenceImage, onClearMask, onGenerateUi, generatedHtml, generatedCss
+  } = props;
+
+  const [activeTab, setActiveTab] = useState<Tab>('design');
   const [bgPrompt, setBgPrompt] = useState<string>('');
   const [lightPrompt, setLightPrompt] = useState<string>('');
 
@@ -87,7 +71,7 @@ export const EditPanel: React.FC<EditPanelProps> = ({
     }
   };
 
-  const renderEditTab = () => {
+  const renderDesignTab = () => {
     if (activeTool === 'select' && !hasSelection) {
       return (
         <div className="p-4 text-center rounded-lg bg-gray-700/50 border border-gray-600 animate-fade-in">
@@ -188,16 +172,26 @@ export const EditPanel: React.FC<EditPanelProps> = ({
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="mb-6">
-         <div className="grid grid-cols-4 space-x-2 p-1 bg-gray-900/50 rounded-lg">
-            <TabButton tabName="edit" label="Bewerken" />
+         <div className="grid grid-cols-5 space-x-2 p-1 bg-gray-900/50 rounded-lg">
+            <TabButton tabName="design" label="Design" />
+            <TabButton tabName="code" label="Code" />
             <TabButton tabName="adjust" label="Aanpassen" />
-            <TabButton tabName="tools" label="Gereedschap" />
+            <TabButton tabName="tools" label="Tools" />
             <TabButton tabName="filters" label="Filters" />
          </div>
       </div>
       
       <div className="flex-grow flex flex-col space-y-6 overflow-y-auto pr-2 -mr-2">
-        {activeTab === 'edit' && renderEditTab()}
+        {activeTab === 'design' && renderDesignTab()}
+
+        {activeTab === 'code' && (
+          <CodePanel
+            onGenerate={onGenerateUi}
+            html={generatedHtml}
+            css={generatedCss}
+            isProcessing={isProcessing}
+          />
+        )}
 
         {activeTab === 'adjust' && (
           <div className="space-y-4 animate-fade-in">
@@ -206,25 +200,25 @@ export const EditPanel: React.FC<EditPanelProps> = ({
                 <label className="block text-sm font-medium text-gray-300">
                   Aanpassingen
                 </label>
-                <button onClick={onResetAdjustments} className="text-xs font-semibold text-indigo-400 hover:text-indigo-300">Reset</button>
+                <button onClick={props.onResetAdjustments} className="text-xs font-semibold text-indigo-400 hover:text-indigo-300">Reset</button>
               </div>
               <div className='space-y-4 p-4 rounded-lg bg-gray-900/50'>
                  <AdjustSlider
                     label="Helderheid"
-                    value={adjustments.brightness}
-                    onChange={(e) => setAdjustments({...adjustments, brightness: +e.target.value})}
+                    value={props.adjustments.brightness}
+                    onChange={(e) => props.setAdjustments({...props.adjustments, brightness: +e.target.value})}
                     min={50} max={150} defaultValue={100}
                 />
                  <AdjustSlider
                     label="Contrast"
-                    value={adjustments.contrast}
-                    onChange={(e) => setAdjustments({...adjustments, contrast: +e.target.value})}
+                    value={props.adjustments.contrast}
+                    onChange={(e) => props.setAdjustments({...props.adjustments, contrast: +e.target.value})}
                     min={50} max={150} defaultValue={100}
                 />
                  <AdjustSlider
                     label="Verzadiging"
-                    value={adjustments.saturation}
-                    onChange={(e) => setAdjustments({...adjustments, saturation: +e.target.value})}
+                    value={props.adjustments.saturation}
+                    onChange={(e) => props.setAdjustments({...props.adjustments, saturation: +e.target.value})}
                     min={0} max={200} defaultValue={100}
                 />
               </div>
@@ -239,11 +233,11 @@ export const EditPanel: React.FC<EditPanelProps> = ({
                 Snelle Acties
               </label>
               <div className="grid grid-cols-2 gap-3">
-                 <button type="button" onClick={onEnhance} disabled={!hasImage || isProcessing} className="w-full flex justify-center items-center gap-2 rounded-md bg-sky-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-sky-500 disabled:bg-gray-600 disabled:text-gray-400 transition-all">
+                 <button type="button" onClick={props.onEnhance} disabled={!hasImage || isProcessing} className="w-full flex justify-center items-center gap-2 rounded-md bg-sky-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-sky-500 disabled:bg-gray-600 disabled:text-gray-400 transition-all">
                   <IconEnhance className="w-5 h-5" />
                   Verbeter
                 </button>
-                <button type="button" onClick={onRemoveBackground} disabled={!hasImage || isProcessing} className="w-full flex justify-center items-center gap-2 rounded-md bg-purple-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-purple-500 disabled:bg-gray-600 disabled:text-gray-400 transition-all">
+                <button type="button" onClick={props.onRemoveBackground} disabled={!hasImage || isProcessing} className="w-full flex justify-center items-center gap-2 rounded-md bg-purple-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-purple-500 disabled:bg-gray-600 disabled:text-gray-400 transition-all">
                   <IconWand className="w-5 h-5" />
                   Verwijder BG
                 </button>
@@ -261,7 +255,7 @@ export const EditPanel: React.FC<EditPanelProps> = ({
                     onChange={(e) => setBgPrompt(e.target.value)}
                     disabled={isProcessing}
                 />
-              <button type="button" onClick={() => onReplaceBackground(bgPrompt)} disabled={isProcessing || !bgPrompt} className="w-full mt-2 flex justify-center items-center gap-2 rounded-md bg-emerald-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 disabled:bg-gray-600 disabled:text-gray-400 transition-all">
+              <button type="button" onClick={() => props.onReplaceBackground(bgPrompt)} disabled={isProcessing || !bgPrompt} className="w-full mt-2 flex justify-center items-center gap-2 rounded-md bg-emerald-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 disabled:bg-gray-600 disabled:text-gray-400 transition-all">
                   <IconReplace className="w-5 h-5" />
                   Genereer
                 </button>
@@ -271,7 +265,7 @@ export const EditPanel: React.FC<EditPanelProps> = ({
                 Geavanceerde Gereedschappen
               </label>
               <div className="space-y-4 p-4 rounded-lg bg-gray-900/50">
-                 <button type="button" onClick={onUpscale} disabled={isProcessing} className="w-full flex justify-center items-center gap-2 rounded-md bg-rose-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-rose-500 disabled:bg-gray-600 disabled:text-gray-400 transition-all">
+                 <button type="button" onClick={props.onUpscale} disabled={isProcessing} className="w-full flex justify-center items-center gap-2 rounded-md bg-rose-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-rose-500 disabled:bg-gray-600 disabled:text-gray-400 transition-all">
                   <IconUpscale className="w-5 h-5" />
                   AI Opschalen
                 </button>
@@ -287,7 +281,7 @@ export const EditPanel: React.FC<EditPanelProps> = ({
                         onChange={(e) => setLightPrompt(e.target.value)}
                         disabled={isProcessing}
                     />
-                  <button type="button" onClick={() => onRelight(lightPrompt)} disabled={isProcessing || !lightPrompt} className="w-full mt-2 flex justify-center items-center gap-2 rounded-md bg-amber-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-500 disabled:bg-gray-600 disabled:text-gray-400 transition-all">
+                  <button type="button" onClick={() => props.onRelight(lightPrompt)} disabled={isProcessing || !lightPrompt} className="w-full mt-2 flex justify-center items-center gap-2 rounded-md bg-amber-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-500 disabled:bg-gray-600 disabled:text-gray-400 transition-all">
                       <IconLight className="w-5 h-5" />
                       Pas Belichting Toe
                     </button>
@@ -303,9 +297,9 @@ export const EditPanel: React.FC<EditPanelProps> = ({
                 {(['original', '1:1', '4:5', '16:9'] as const).map(r => (
                   <button
                     key={r}
-                    onClick={() => setAspectRatio(r)}
+                    onClick={() => props.setAspectRatio(r)}
                     className={`p-2 text-xs rounded-md transition-colors font-semibold ${
-                      aspectRatio === r
+                      props.aspectRatio === r
                         ? 'bg-indigo-600 text-white'
                         : 'bg-gray-600 hover:bg-gray-500 text-gray-200'
                     }`}
@@ -314,7 +308,7 @@ export const EditPanel: React.FC<EditPanelProps> = ({
                   </button>
                 ))}
               </div>
-                <button type="button" onClick={onMagicExpand} disabled={isProcessing || aspectRatio === 'original'} className="w-full flex justify-center items-center gap-2 rounded-md bg-teal-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-500 disabled:bg-gray-600 disabled:text-gray-400 transition-all">
+                <button type="button" onClick={props.onMagicExpand} disabled={isProcessing || props.aspectRatio === 'original'} className="w-full flex justify-center items-center gap-2 rounded-md bg-teal-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-500 disabled:bg-gray-600 disabled:text-gray-400 transition-all">
                   <IconExpand className="w-5 h-5" />
                   Genereer
                 </button>
@@ -331,7 +325,7 @@ export const EditPanel: React.FC<EditPanelProps> = ({
                 {filters.map(filter => (
                   <button
                     key={filter.name}
-                    onClick={() => onApplyFilter(filter.prompt)}
+                    onClick={() => props.onApplyFilter(filter.prompt)}
                     disabled={isProcessing}
                     className="aspect-square flex items-center justify-center p-2 rounded-md text-white font-semibold text-center transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transform"
                     style={{

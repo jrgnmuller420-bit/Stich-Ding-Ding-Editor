@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality, Part, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, Modality, Part, GenerateContentResponse, Type } from "@google/genai";
 
 const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -162,4 +162,53 @@ export const selectObject = async (
     }
     
     throw new Error("Objectselectie mislukt. Het model heeft geen masker geretourneerd.");
+};
+
+export const generateUiCode = async (
+    file: File,
+    prompt: string
+): Promise<{html: string, css: string}> => {
+    const ai = getApiClient();
+    const imageBase64 = await fileToBase64(file);
+
+    const parts: Part[] = [
+        {
+            inlineData: {
+                data: imageBase64,
+                mimeType: file.type,
+            },
+        },
+        {
+            text: `Je bent een deskundige webontwikkelaar. Analyseer de meegeleverde afbeelding. Genereer op basis van het verzoek van de gebruiker schone, moderne en responsieve HTML- en CSS-code voor een webcomponent. Het verzoek van de gebruiker is: '${prompt}'. De gegenereerde code moet esthetisch aantrekkelijk zijn en de afbeelding op de juiste manier gebruiken (bijv. als achtergrond, als onderdeel van de inhoud). Gebruik geen externe bibliotheken of frameworks. Retourneer uw antwoord als een enkel JSON-object met twee sleutels: 'html' en 'css'.`,
+        },
+    ];
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-pro',
+        contents: { parts },
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    html: { type: Type.STRING, description: 'De gegenereerde HTML-code.' },
+                    css: { type: Type.STRING, description: 'De bijbehorende CSS-code.' }
+                },
+                required: ['html', 'css']
+            }
+        }
+    });
+
+    const jsonString = response.text.trim();
+    try {
+        const result = JSON.parse(jsonString);
+        if (result.html && result.css) {
+            return result;
+        } else {
+            throw new Error("Ongeldig JSON-formaat ontvangen van de API.");
+        }
+    } catch (e) {
+        console.error("Fout bij het parsen van JSON:", jsonString);
+        throw new Error("Kon de JSON-reactie van de API niet parsen.");
+    }
 };
